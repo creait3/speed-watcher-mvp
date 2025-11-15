@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Speed‑Wächter MVP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 1rem; }
+    .result { margin-top: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>Speed‑Wächter</h1>
+  <p>Diese Demo führt einen einfachen Speedtest aus. Sie basiert auf reinem HTML/JS und benötigt keine Plugins.</p>
+
+  <label>Vertragliche Download‑Rate (Mbit/s):
+    <input type="number" id="contractDown" value="250" min="1">
+  </label><br>
+  <label>Vertragliche Upload‑Rate (Mbit/s):
+    <input type="number" id="contractUp" value="40" min="1">
+  </label><br>
+  <button id="startTest">Jetzt testen</button>
+  <div id="status"></div>
+
+  <div class="result">
+    <h2>Letzte Messungen</h2>
+    <table id="historyTable">
+      <thead>
+        <tr><th>Zeitpunkt</th><th>Down (Mbit/s)</th><th>Up (Mbit/s)</th><th>Status</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+const startBtn   = document.getElementById('startTest');
+const statusDiv  = document.getElementById('status');
+const historyTbl = document.getElementById('historyTable').querySelector('tbody');
+const testFileUrl = '/testfile.bin';
+
+async function requestNotificationPermission() {
+  if (Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+}
+
+function saveMeasurement(result) {
+  const history = JSON.parse(localStorage.getItem('speedHistory') || '[]');
+  history.push(result);
+  localStorage.setItem('speedHistory', JSON.stringify(history));
+}
+
+function renderHistory() {
+  const history = JSON.parse(localStorage.getItem('speedHistory') || '[]');
+  historyTbl.innerHTML = '';
+  history.slice(-10).reverse().forEach(item => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${new Date(item.timestamp).toLocaleString()}</td>
+      <td>${item.down.toFixed(1)}</td>
+      <td>${item.up.toFixed(1)}</td>
+      <td>${item.status}</td>
+    `;
+    historyTbl.appendChild(row);
+  });
+}
+
+async function measureDownload() {
+  const start = performance.now();
+  const resp  = await fetch(testFileUrl, {cache: 'no-store'});
+  const blob  = await resp.blob();
+  const end   = performance.now();
+  const bits  = blob.size * 8;
+  const seconds = (end - start) / 1000;
+  return (bits / seconds) / 1e6;
+}
+
+async function measureUpload() {
+  const sizeBytes = 5 * 1024 * 1024;
+  const blob = new Blob([new Uint8Array(sizeBytes)]);
+  const start = performance.now();
+  await fetch('/upload', {method: 'POST', body: blob});
+  const end = performance.now();
+  const bits = sizeBytes * 8;
+  const seconds = (end - start) / 1000;
+  return (bits / seconds) / 1e6;
+}
+
+async function runTest() {
+  statusDiv.textContent = 'Test läuft…';
+  const contractDown = parseFloat(document.getElementById('contractDown').value);
+  const contractUp   = parseFloat(document.getElementById('contractUp').value);
+
+  const down = await measureDownload();
+  const up   = await measureUpload();
+  const thresholdDown = contractDown * 0.9;
+  const thresholdUp   = contractUp * 0.9;
+  let status = 'OK';
+
+  if (down < thresholdDown || up < thresholdUp) {
+    status = 'Langsam';
+    if (Notification.permission === 'granted') {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification('Speed‑Alarm', {
+          body: `Deine aktuelle Geschwindigkeit ist zu langsam: ${down.toFixed(1)} / ${up.toFixed(1)} Mbit/s`,
+          icon: ''
+        });
+      });
+    }
+  }
+
+  const result = {timestamp: Date.now(), down, up, status};
+  saveMeasurement(result);
+  renderHistory();
+  statusDiv.textContent = `Ergebnis: Down ${down.toFixed(1)} / Up ${up.toFixed(1)} Mbit/s – ${status}`;
+}
+
+startBtn.addEventListener('click', async () => {
+  await requestNotificationPermission();
+  await runTest();
+});
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js').then(() => {
+    console.log('Service Worker registriert');
+  });
+}
+
+renderHistory();
+</script>
+</body>
+</html>
