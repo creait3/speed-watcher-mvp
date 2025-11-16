@@ -131,4 +131,23 @@ if ('serviceWorker' in navigator) {
 renderHistory();
 </script>
 </body>
+  // IP und Anbieter ermitteln
+const ipInfoElement = document.createElement('p');
+ipInfoElement.id = 'ipInfo';
+ipInfoElement.textContent = 'Lade IP‑Informationen…';
+
+// Absatz vor den Vertragseingaben einfügen
+const contractDownInput = document.getElementById('contractDown');
+document.body.insertBefore(ipInfoElement, contractDownInput.parentElement);
+
+fetch('https://ipapi.co/json/')
+  .then(res => res.json())
+  .then(data => {
+    const provider = data.org || data.asn_org || data.org_name || '';
+    ipInfoElement.textContent = `IP‑Adresse: ${data.ip} – Anbieter: ${provider}`;
+  })
+  .catch(() => {
+    ipInfoElement.textContent = 'IP‑Informationen konnten nicht geladen werden.';
+  });
+
 </html>
